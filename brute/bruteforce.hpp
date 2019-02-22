@@ -44,7 +44,6 @@ public:
             }
             T v = f(y);
             if(v < fr) {
-                std::cout << "upd: " << v << "\n";
                 fr = v;
                 std::copy(y, y + n, x);
             }
