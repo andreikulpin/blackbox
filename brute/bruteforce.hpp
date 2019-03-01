@@ -32,7 +32,8 @@ public:
     BruteForce(int p) : mP(p) {
     }
 
-    T search(int n, T* x, const T * const a, const T * const b, const std::function<T(const T * const)> &f) {
+    T search(int n, T* x, const T * const a, const T * const b, const std::function<T(const T * const)> &f) override 
+    {
         const int tot = pow(mP, n);
         T *y = new T[n];
         T fr = std::numeric_limits<T>::max();

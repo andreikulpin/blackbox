@@ -16,7 +16,7 @@ double f(const double* x) {
         v += x[i] * x[i];
     return v;
 }
-main() {
+int main() {
     BruteForce<double> bf(16);
     double x[n];
     double a[n], b[n];
