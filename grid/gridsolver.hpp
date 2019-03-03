@@ -44,6 +44,7 @@ public:
 		//if hyperinterval divides, 2 new hyperintervals with bounds [a..b1] [a1..b] creates
 		a1 = new T[n];
 		b1 = new T[n];
+		T *xs = new T[n];
 
 		if ((a1 == nullptr) || (b1 == nullptr)) {
 			std::cerr << "Problem with memory allocation" << std::endl;
@@ -57,11 +58,11 @@ public:
 
 			for (unsigned int i = 0; i < parts; i++) {
 				T lUPB, lLOB, ldeltaL;
-				GridEvaluator(n,P[i].a, P[i].b, x, &lUPB, &lLOB, &ldeltaL, f);
+				GridEvaluator(n,P[i].a, P[i].b, xs, &lUPB, &lLOB, &ldeltaL, f);
 				P[i].LocLO = lLOB;
 				P[i].LocUP = lUPB;
 				P[i].deltaL = ldeltaL;
-				UpdateRecords(lUPB, lLOB);
+				UpdateRecords(lUPB, x, xs, n);
 			}
 
 			for (unsigned int i = 0; i < parts; i++) {
@@ -86,7 +87,7 @@ public:
 			P = P1;
 			P1.erase();
 		}
-		delete[]a1; delete[]b1;
+		delete[]a1; delete[]b1; delete[]xs;
 		P.erase();
 		return UPB;
 	}
@@ -117,10 +118,12 @@ protected:
 	virtual double getR(const T delta) { //r value for formula for estimating Lipschitz constant
 		return static_cast<double>(exp(delta));
 	}
-	virtual void UpdateRecords(const T LU, const T LL) { //UPB - global upper bound, LU - local value of upper bound on current hyperinterval
+	virtual void UpdateRecords(const T LU, T* x, const T *xs, int n) { //UPB - global upper bound, LU - local value of upper bound on current hyperinterval
 		if (LU < UPB) {
 			UPB = LU;
-			LOB = LL;
+			for (int i = 0; i < n; i++) {
+				x[i] = xs[i];
+			}
 		}
 	}
 
