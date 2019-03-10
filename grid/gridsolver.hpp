@@ -8,7 +8,7 @@
 #include <fstream>
 #include "../common/bbsolver.hpp"
 
-
+/* forward definition of vector-analog, used in solver */
 template <class T>
 struct Partitions;
 
@@ -25,65 +25,110 @@ public:
 		param = false;
 	}
 
+	/**
+	* Set params of solver
+	* @param n number of nodes per dimension
+	* @param e required accuracy
+	*/
 	virtual void setparams(int n, T e) {
 		eps = e;
 		nodes = n;
 		param = true;
 	}
 
+	/**
+	* Search with grid solver
+	* @param n number of task dimensions
+	* @param x coordinates of founded minimum (retvalue)
+	* @param a,b left/right bounds of search region
+	* @param f pointer to function for which search minimum
+	*/
 	virtual T search(int n, T* x, const T * const a, const T * const b, const std::function<T(const T * const)> &f) {
+		/* reset variables */
 		fevals = 0;
 		iters = 0;
+		int er;
+		/* create 2 vectors */
+		/* P contains parts (hyperintervals on which search must be performed */
+		/* P1 temporary */
 		Partitions<T> P(n), P1(n);
-		UPB = std::numeric_limits<T>::max();	//upper bound
+		/* Upper bound */
+		UPB = std::numeric_limits<T>::max();
+		/* check if function pointer provided */
 		if (f == nullptr) {
 			errcode = -1;
-			return -100e10;
+			return UPB;
 		}
 
-		P.add(a, b);	//add first hyperinterval
+		/* Add first hyperinterval */
 
-		T *a1, *b1;
-		//if hyperinterval divides, 2 new hyperintervals with bounds [a..b1] [a1..b] creates
-		a1 = new T[n];
-		b1 = new T[n];
-		T *xs = new T[n];
-
-		if ((a1 == nullptr) || (b1 == nullptr)) {
-			std::cerr << "Problem with memory allocation" << std::endl;
+		er = P.add(a, b);
+		if (er == -1) {
 			errcode = -2;
-			return -100e10;
+			return UPB;
 		}
 
-		while (P.size != 0) {	//each hyperinterval can be subdivided or pruned (if non-promisiable or fits accuracy)
+		/* If hyperinterval divides, 2 new hyperintervals with bounds [a..b1] [a1..b] creates */
+		/* xs temporary array for storage local min coordinates */
+		T *a1, *b1, *xs;
+		try {
+			a1 = new T[n];
+			b1 = new T[n];
+			xs = new T[n];
+		}
+		catch (std::bad_alloc& ba) {
+			std::cerr << ba.what() << std::endl;
+			errcode = -2;
+			return UPB;
+		}
+
+		/* Each hyperinterval can be subdivided or pruned (if non-promisable or fits accuracy) */
+		while (P.size != 0) {\
+			/* number of iterations on this step (BFS) */
 			unsigned int parts = P.size;
 			iters += parts;
 
+			/* For all hyperintervals on this step perform grid search */
 			for (unsigned int i = 0; i < parts; i++) {
+				/* local values of upper and lower bounds, value of delta*L (Lipshitz const) */
 				T lUPB, lLOB, ldeltaL;
 				GridEvaluator(n, P[i].a, P[i].b, xs, &lUPB, &lLOB, &ldeltaL, f);
 				P[i].LocLO = lLOB;
 				P[i].LocUP = lUPB;
 				P[i].deltaL = ldeltaL;
+				/* remember new results if less then previous */
 				UpdateRecords(lUPB, x, xs, n);
 			}
 
+			/* Choose which hyperintervals should be subdivided */
 			for (unsigned int i = 0; i < parts; i++) {
+				/* Subdivision criteria */
 				if (!((P[i].LocLO >(UPB - eps)) || (P[i].deltaL < eps))) {
+					/* If subdivide, choose dimension (the longest side) */
 					int choosen = ChooseDim(n, P[i].a, P[i].b);
 
-					for (int j = 0; j < n; j++) { //make new edges for 2 new hyperintervals:
-						if (j != choosen) {						//[a .. b1] [a1 .. b]
-							a1[j] = P[i].a[j];			//where a1 = [a[1], a[2], .. ,a[choosen] + b[choosen]/2, .. , a[dim] ]
-							b1[j] = P[i].b[j];			//and b1 = [b[1], b[2], .. ,a[choosen] + b[choosen]/2, .. , b[dim] ]
+					/* Make new edges for 2 new hyperintervals */
+					for (int j = 0; j < n; j++) {
+						if (j != choosen) {			/* [a .. b1] [a1 .. b] */
+							a1[j] = P[i].a[j];		/* where a1 = [a[1], a[2], .. ,a[choosen] + b[choosen]/2, .. , a[dim] ] */
+							b1[j] = P[i].b[j];		/* and b1 = [b[1], b[2], .. ,a[choosen] + b[choosen]/2, .. , b[dim] ] */
 						}
 						else {
 							a1[j] = P[i].a[j] + fabs(P[i].b[j] - P[i].a[j]) / 2.0;
 							b1[j] = a1[j];
 						}
 					}
-					P1.add(P[i].a, b1);
-					P1.add(a1, P[i].b);
+					/* Add 2 new hyperintervals, parent HI no longer considered */
+					er = P1.add(P[i].a, b1);
+					if (er == -1) {
+						errcode = -2;
+						return UPB;
+					}
+					er = P1.add(a1, P[i].b);
+					if (er == -1) {
+						errcode = -2;
+						return UPB;
+					}
 				}
 			}
 
@@ -94,6 +139,11 @@ public:
 		P.erase();
 		return UPB;
 	}
+
+	/** 
+	* Check if there are errors during search process
+	* @param fp - stream used to output error messages
+	*/
 	virtual void checkErrors(std::ofstream & fp = std::cerr) {
 		switch (errcode) {
 		case -1:
@@ -110,22 +160,34 @@ public:
 				"        nodes = 2; eps = 100" << std::endl;
 		}
 	}
+
+	/**
+	* get number of consumed func evaluations and algorithm iterations after search completed
+	* @param evs (retvalue) number of function evaluations
+	* @param its (retvalue) number of algorithm iterations
+	*/
 	virtual void getinfo(unsigned long long int &evs, unsigned long int &its) {
 		evs = fevals;
 		its = iters;
 	}
 
 protected:
-	unsigned long long fevals;
-	unsigned long iters;
-	T eps;
-	int errcode, nodes;
-	bool param;
-	T UPB, LOB;
-	virtual double getR(const T delta) { //r value for formula for estimating Lipschitz constant
+
+	unsigned long long fevals; /* number of function evaluations that search consumed */
+	unsigned long iters; /* nember of algorithm itaretions that search consumed */
+	T eps;	/* required accuracy */
+	int errcode, nodes;	/* internal varibale for handlig errors and number of nodes per dimension */
+	bool param;		/* indicate if nodes and eps was initialized */
+	T UPB, LOB;		/* obtained upper bound and lower bound */
+
+	/* Get R (reliable coefficient) for the corresponding step lenght*/
+	virtual double getR(const T delta) { 
+		/* The value depends on step lenght (test formula, may be changed) */
 		return static_cast<double>(exp(delta));
 	}
-	virtual void UpdateRecords(const T LU, T* x, const T *xs, int n) { //UPB - global upper bound, LU - local value of upper bound on current hyperinterval
+
+	/* Update the current record and its coordinates in accordance with new results obtained on some hyperinterval*/
+	virtual void UpdateRecords(const T LU, T* x, const T *xs, int n) {
 		if (LU < UPB) {
 			UPB = LU;
 			for (int i = 0; i < n; i++) {
@@ -134,7 +196,8 @@ protected:
 		}
 	}
 
-	virtual int ChooseDim(int dim, const T *a, const T *b) { //selection of coordinate for hyperinterval division
+	/* Select dimension for subdivide hyperinteral (choose the longest side) */
+	virtual int ChooseDim(int dim, const T *a, const T *b) {
 		T max = std::numeric_limits<T>::min(), cr;
 		int i, maxI = 0;
 		for (i = 0; i < dim; i++) {
@@ -151,24 +214,34 @@ protected:
 		T Fr = std::numeric_limits<T>::max(), L = std::numeric_limits<T>::min(), delta = std::numeric_limits<T>::min(), LB;
 		double R;
 		T *step, *x, *Fvalues;
-		step = new T[dim]; //step of grid in every dimension
-		x = new T[dim]; //algorithm now needs to evaluate function in two adjacent point at the same time
-		if ((step == nullptr) || (x == nullptr)) {
+		try {
+			/* step of grid in every dimension */
+			step = new T[dim];
+			x = new T[dim];
+		}
+		catch (std::bad_alloc& ba) {
+			std::cerr << ba.what() << std::endl;
 			errcode = -2;
 			return;
 		}
+
 		for (int i = 0; i < dim; i++) {
 			step[i] = fabs(b[i] - a[i]) / (nodes - 1);
 			delta = step[i] > delta ? step[i] : delta;
 		}
 		delta = delta * 0.5 * dim;
-		R = getR(delta);	//value of r
+		R = getR(delta);
 		int allnodes = static_cast<int>(pow(nodes, dim)), node;
-		Fvalues = new T[allnodes];
-		if (Fvalues == nullptr) {
+		try {
+			Fvalues = new T[allnodes];
+		}
+		catch (std::bad_alloc& ba) {
+			std::cerr << ba.what() << std::endl;
 			errcode = -2;
 			return;
 		}
+
+		/* Calculate and cache the value of the function in all points of the grid */
 		for (int j = 0; j < allnodes; j++) {
 			int point = j;
 			for (int k = dim - 1; k >= 0; k--) {
@@ -178,18 +251,24 @@ protected:
 			}
 			T rs = compute(x);
 			Fvalues[j] = rs;
+			/* also remember minimum value across the grid */
 			if (rs < Fr) {
 				Fr = rs;
 				node = j;
 			}
 		}
+
 		fevals += allnodes;
+
+		/* Calculate coordinates of obtained upper bound */
+
 		for (int k = dim - 1; k >= 0; k--) {
 			int t = node % nodes;
 			node = (int)(node / nodes);
 			xfound[k] = a[k] + t * step[k];
 		}
 
+		/* Calculate all estimations of Lipshitz constant and choose maximum estimation */
 		for (int j = 0; j < allnodes; j++) {
 			int neighbour;
 			for (int k = 0; k < dim; k++) {
@@ -201,7 +280,9 @@ protected:
 				}
 			}
 		}
-		//final calculation
+
+		/* final calculation */
+
 		LB = R * L * delta;
 		*dL = LB;
 		LB = Fr - LB;
@@ -211,6 +292,8 @@ protected:
 		*LBp = LB;
 	}
 };
+
+/* Search on grid with OpenMP parallelization */
 
 template <class T> class GridSolverOMP : public GridSolver <T> {
 public:
@@ -224,40 +307,51 @@ public:
 		omp_set_num_threads(np);
 	}
 
-
-
 protected:
+
+	/* number of available processors */
 	int np;
+
 	void GridEvaluator(int dim, const T *a, const T *b, T* xfound, T *Frp, T *LBp, T *dL, const std::function<T(const T * const)> &compute) {
 		T Fr = std::numeric_limits<T>::max(), L = std::numeric_limits<T>::min(), delta = std::numeric_limits<T>::min(), LB;
 		double R;
 		T *step, *x, *Fvalues, *Frs, *Ls;
 		int *pts;
-		step = new T[dim]; //step of grid in every dimension
-		Frs = new T[np];
-		Ls = new T[np];
-		pts = new int[np];
-		if ((step == nullptr) || (Frs == nullptr) || (Ls == nullptr) || (pts == nullptr)) {
+		try {
+			step = new T[dim];
+			Frs = new T[np];
+			Ls = new T[np];
+			pts = new int[np];
+		}
+		catch (std::bad_alloc& ba) {
+			std::cerr << ba.what() << std::endl;
 			this->errcode = -2;
 			return;
 		}
+		
 		for (int k = 0; k < np; k++) {
 			Frs[k] = std::numeric_limits<T>::max();
 			Ls[k] = std::numeric_limits<T>::min();
 		}
+
 		for (int i = 0; i < dim; i++) {
 			step[i] = fabs(b[i] - a[i]) / (this->nodes - 1);
 			delta = step[i] > delta ? step[i] : delta;
 		}
+
 		delta = delta * 0.5 * dim;
-		R = this->getR(delta);	//value of r
+		R = this->getR(delta);
 		int allnodes = static_cast<int>(pow(this->nodes, dim));
 		int node;
-		Fvalues = new T[allnodes];
-		if (Fvalues == nullptr) {
+		try {
+			Fvalues = new T[allnodes];
+		}
+		catch (std::bad_alloc& ba) {
+			std::cerr << ba.what() << std::endl;
 			this->errcode = -2;
 			return;
 		}
+		
 #pragma omp parallel private(x) shared(dim, step, a, Fvalues)
 		{
 			x = new T[dim];
@@ -279,8 +373,8 @@ protected:
 			}
 			delete[]x;
 		}
-		this->fevals += allnodes;
 
+		this->fevals += allnodes;
 
 #pragma omp parallel for shared(dim,allnodes,Fvalues)
 		for (int j = 0; j < allnodes; j++) {
@@ -310,7 +404,7 @@ protected:
 			node = (int)(node / this->nodes);
 			xfound[k] = a[k] + t * step[k];
 		}
-		//final calculation
+		/* final calculation */
 		LB = R * L * delta;
 		*dL = LB;
 		LB = Fr - LB;
@@ -322,25 +416,31 @@ protected:
 
 };
 
+/* hyperinterval info */
 template <class T>
-struct part {	//description of hyperinterval
+struct part {
 	T *a = nullptr;
 	T *b = nullptr;
 	T LocUP, LocLO, deltaL;
 };
 
+/* vator of part(s)*/
+
 template <class T>
-struct Partitions {		//all hyperintervals obtained on current step of algorithm
+struct Partitions {
+
 	const int chunk = 16;
-	int size, dim;			//like std::vector, but in C language with only needed methods
-	int cur_alloc;		//memory already allocated for array of struct part
+	int size, dim;
+	int cur_alloc;
 	struct part<T>* base;
+
 	Partitions(int n) {
 		dim = n;
 		size = 0;
 		cur_alloc = 0;
 		base = nullptr;
 	}
+
 	~Partitions() {
 		for (int i = 0; i < size; i++) {
 			free(base[i].a);
@@ -351,6 +451,7 @@ struct Partitions {		//all hyperintervals obtained on current step of algorithm
 			free(base);
 		cur_alloc = 0;;
 	}
+
 	void erase() {
 		for (int i = 0; i < size; i++) {
 			free(base[i].a);
@@ -361,6 +462,7 @@ struct Partitions {		//all hyperintervals obtained on current step of algorithm
 			free(base);
 		cur_alloc = 0;
 	}
+
 	int add(const T* toa, const T *tob) {
 		if (cur_alloc == 0) {
 			base = (struct part<T>*)malloc(chunk * sizeof(struct part<T>));
@@ -379,15 +481,16 @@ struct Partitions {		//all hyperintervals obtained on current step of algorithm
 				cur_alloc += chunk;
 			}
 			else {
-				std::cerr << "Error alloc" << std::endl;
+				std::cerr << "Error in allocation procedure" << std::endl;
 				erase();
 				return -1;
 			}
 		}
+
 		base[size].a = (double*)malloc(dim * sizeof(double));
 		base[size].b = (double*)malloc(dim * sizeof(double));
 		if ((!base[size].a) || (!base[size].b)) {
-			std::cerr << "Error alloc" << std::endl;
+			std::cerr << "Error in allocation procedure" << std::endl;
 			erase();
 			return -1;
 		}
@@ -398,12 +501,14 @@ struct Partitions {		//all hyperintervals obtained on current step of algorithm
 		size++;
 		return 0;
 	}
+
 	part<T> & operator[](int n) {
 		if (n > size - 1) {
 			std::cerr << "Out of size" << std::endl;
 		}
 		return base[n];
 	}
+
 	Partitions<T> & operator=(Partitions<T>& P) {
 		erase();
 		for (int i = 0; i < P.size; i++) {
