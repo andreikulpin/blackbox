@@ -4,7 +4,9 @@
 #include <math.h>
 #include <algorithm>
 #include <limits>
-#include "common/bbsolver.hpp"
+#include <omp.h>
+#include <fstream>
+#include "../common/bbsolver.hpp"
 
 
 template <class T>
@@ -13,7 +15,6 @@ struct Partitions;
 
 template <class T> class GridSolver : public BlackBoxSolver <T> {
 public:
-
 	/**
 	* Constructor
 	*/
@@ -21,11 +22,13 @@ public:
 		errcode = 0;
 		eps = 100;
 		nodes = 2;
+		param = false;
 	}
 
 	virtual void setparams(int n, T e) {
 		eps = e;
 		nodes = n;
+		param = true;
 	}
 
 	virtual T search(int n, T* x, const T * const a, const T * const b, const std::function<T(const T * const)> &f) {
@@ -58,7 +61,7 @@ public:
 
 			for (unsigned int i = 0; i < parts; i++) {
 				T lUPB, lLOB, ldeltaL;
-				GridEvaluator(n,P[i].a, P[i].b, xs, &lUPB, &lLOB, &ldeltaL, f);
+				GridEvaluator(n, P[i].a, P[i].b, xs, &lUPB, &lLOB, &ldeltaL, f);
 				P[i].LocLO = lLOB;
 				P[i].LocUP = lUPB;
 				P[i].deltaL = ldeltaL;
@@ -66,7 +69,7 @@ public:
 			}
 
 			for (unsigned int i = 0; i < parts; i++) {
-				if (!((P[i].LocLO > (UPB - eps)) || (P[i].deltaL < eps))) {
+				if (!((P[i].LocLO >(UPB - eps)) || (P[i].deltaL < eps))) {
 					int choosen = ChooseDim(n, P[i].a, P[i].b);
 
 					for (int j = 0; j < n; j++) { //make new edges for 2 new hyperintervals:
@@ -91,16 +94,20 @@ public:
 		P.erase();
 		return UPB;
 	}
-	virtual void checkErrors() {
+	virtual void checkErrors(std::ofstream & fp = std::cerr) {
 		switch (errcode) {
 		case -1:
-			std::cerr << "Pointer to computing function (*compute) have not been initialized!" << std::endl;
+			fp << "Pointer to computing function (*compute) have not been initialized!" << std::endl;
 			break;
 		case -2:
-			std::cerr << "Sorry, amount of RAM on your device insufficient to solve this task, please upgrade :)" << std::endl;
+			fp << "Sorry, amount of RAM on your device insufficient to solve this task, please upgrade :)" << std::endl;
 			break;
 		default:
 			break;
+		}
+		if (!param) {
+			fp << "Parameters have not been initialized, solved with default params:" << std::endl << \
+				"        nodes = 2; eps = 100" << std::endl;
 		}
 	}
 	virtual void getinfo(unsigned long long int &evs, unsigned long int &its) {
@@ -112,8 +119,8 @@ protected:
 	unsigned long long fevals;
 	unsigned long iters;
 	T eps;
-	int errcode;
-	int nodes;
+	int errcode, nodes;
+	bool param;
 	T UPB, LOB;
 	virtual double getR(const T delta) { //r value for formula for estimating Lipschitz constant
 		return static_cast<double>(exp(delta));
@@ -147,7 +154,7 @@ protected:
 		step = new T[dim]; //step of grid in every dimension
 		x = new T[dim]; //algorithm now needs to evaluate function in two adjacent point at the same time
 		if ((step == nullptr) || (x == nullptr)) {
-			errcode =-2;
+			errcode = -2;
 			return;
 		}
 		for (int i = 0; i < dim; i++) {
@@ -203,6 +210,116 @@ protected:
 		*Frp = Fr;
 		*LBp = LB;
 	}
+};
+
+template <class T> class GridSolverOMP : public GridSolver <T> {
+public:
+
+	/**
+	* Constructor
+	*/
+	GridSolverOMP() {
+		np = omp_get_num_procs();
+		omp_set_dynamic(0);
+		omp_set_num_threads(np);
+	}
+
+
+
+protected:
+	int np;
+	void GridEvaluator(int dim, const T *a, const T *b, T* xfound, T *Frp, T *LBp, T *dL, const std::function<T(const T * const)> &compute) {
+		T Fr = std::numeric_limits<T>::max(), L = std::numeric_limits<T>::min(), delta = std::numeric_limits<T>::min(), LB;
+		double R;
+		T *step, *x, *Fvalues, *Frs, *Ls;
+		int *pts;
+		step = new T[dim]; //step of grid in every dimension
+		Frs = new T[np];
+		Ls = new T[np];
+		pts = new int[np];
+		if ((step == nullptr) || (Frs == nullptr) || (Ls == nullptr) || (pts == nullptr)) {
+			this->errcode = -2;
+			return;
+		}
+		for (int k = 0; k < np; k++) {
+			Frs[k] = std::numeric_limits<T>::max();
+			Ls[k] = std::numeric_limits<T>::min();
+		}
+		for (int i = 0; i < dim; i++) {
+			step[i] = fabs(b[i] - a[i]) / (this->nodes - 1);
+			delta = step[i] > delta ? step[i] : delta;
+		}
+		delta = delta * 0.5 * dim;
+		R = this->getR(delta);	//value of r
+		int allnodes = static_cast<int>(pow(this->nodes, dim));
+		int node;
+		Fvalues = new T[allnodes];
+		if (Fvalues == nullptr) {
+			this->errcode = -2;
+			return;
+		}
+#pragma omp parallel private(x) shared(dim, step, a, Fvalues)
+		{
+			x = new T[dim];
+#pragma omp for
+			for (int j = 0; j < allnodes; j++) {
+				int point = j;
+				for (int k = dim - 1; k >= 0; k--) {
+					int t = point % this->nodes;
+					point = (int)(point / this->nodes);
+					x[k] = a[k] + t * step[k];
+				}
+				T rs = compute(x);
+				Fvalues[j] = rs;
+				int nt = omp_get_thread_num();
+				if (rs < Frs[nt]) {
+					Frs[nt] = rs;
+					pts[nt] = j;
+				}
+			}
+			delete[]x;
+		}
+		this->fevals += allnodes;
+
+
+#pragma omp parallel for shared(dim,allnodes,Fvalues)
+		for (int j = 0; j < allnodes; j++) {
+			int neighbour;
+			T loc = std::numeric_limits<T>::min();
+			for (int k = 0; k < dim; k++) {
+				int board = (int)pow(this->nodes, k + 1);
+				neighbour = j + board / this->nodes;
+				if ((neighbour < allnodes) && ((j / board) == (neighbour / board))) {
+					loc = static_cast<T>(fabs(Fvalues[j] - Fvalues[neighbour])) / step[dim - 1 - k];
+				}
+				int nt = omp_get_thread_num();
+				if (loc > Ls[nt]) {
+					Ls[nt] = loc;
+				}
+			}
+		}
+		for (int k = 0; k < np; k++) {
+			if (Frs[k] < Fr) {
+				Fr = Frs[k];
+				node = pts[k];
+			}
+			L = Ls[k] > L ? Ls[k] : L;
+		}
+		for (int k = dim - 1; k >= 0; k--) {
+			int t = node % this->nodes;
+			node = (int)(node / this->nodes);
+			xfound[k] = a[k] + t * step[k];
+		}
+		//final calculation
+		LB = R * L * delta;
+		*dL = LB;
+		LB = Fr - LB;
+		delete[]step;
+		delete[]Fvalues;
+		*Frp = Fr;
+		*LBp = LB;
+	}
+
 };
 
 template <class T>
@@ -295,5 +412,7 @@ struct Partitions {		//all hyperintervals obtained on current step of algorithm
 		return (*this);
 	}
 };
+
+
 
 #endif /* GRIDSOLVER_HPP */

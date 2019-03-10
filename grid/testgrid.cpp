@@ -18,6 +18,7 @@ int main() {
 	std::fill(b, b + n, 2);
 	gs.setparams(5, 0.1);
 	double v = gs.search(n, x, a, b, f);
+	gs.checkErrors(std::cerr);
 	std::cout << "Found " << v << " at [";
 	std::copy(x, x + n, std::ostream_iterator<double>(std::cout, " "));
 	std::cout << "]\n";
