@@ -1,6 +1,7 @@
 all dep clean tests::
 	cd brute && $(MAKE) $@ && cd .. 
 	cd rosenbrock && $(MAKE) $@ && cd ..
+	cd best_point && $(MAKE) $@ && cd ..
 
 doc: indent doxy
 
