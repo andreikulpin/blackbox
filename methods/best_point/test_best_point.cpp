@@ -2,12 +2,15 @@
 #include <cstdlib>
 #include "best_point_method.hpp"
 
-
 using namespace std;
 
 double func(const double* x) {
     return 100 * SGSQR(x[1] - x[0] * x[0]) + SGSQR(1 - x[1]);
 }
+
+/*double func(const double* x) {
+            return 4 * SGSQR(x[0] - 5) + SGSQR(x[1] - 6);
+        }*/
 
 int main(int argc, char** argv) {
     const int dim = 2;

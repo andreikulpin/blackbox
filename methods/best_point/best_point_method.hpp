@@ -98,7 +98,7 @@ namespace LOCSEARCH {
             /**
              * Stop criterion
              */
-            FT mEps = 0.01;
+            FT mEps = 0.00001;
         };
 
         /**
