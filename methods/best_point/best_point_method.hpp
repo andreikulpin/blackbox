@@ -193,7 +193,8 @@ namespace LOCSEARCH {
                         {
                             delta_x[j] = x[j] + dirs[i * n + j] * h;
                         }
-                        delta_f[i] = obj->func(delta_x);
+                        delta_f[i] = f(delta_x);
+                        //delta_f[i] = obj->func(delta_x);
                         delta_f[i] = delta_f[i] - fcur;
                         for (int j = 0; j < n; j++)
                         {   
@@ -293,7 +294,7 @@ namespace LOCSEARCH {
         Options mOptions;
         std::vector<Stopper> mStoppers;
         //std::vector<Watcher> mWatchers;
-        std::unique_ptr<LineSearch<FT>> mLS;
+        //std::unique_ptr<LineSearch<FT>> mLS;
         FT mGlobMin;
 
         bool isInBox(int n, const FT* x, const FT* a, const FT* b) {

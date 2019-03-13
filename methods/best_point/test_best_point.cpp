@@ -19,9 +19,8 @@ int main(int argc, char** argv) {
     std::fill(b, b + dim, 8);
 
     LOCSEARCH::BestPointMethod<double> searchMethod;
-    searchMethod.getOptions().mHInit = std::vector<double>({1., 1.});
     searchMethod.getOptions().mDoTracing = true;
-    searchMethod.getOptions().mMaxStepsNumber = 10000;
+    searchMethod.getOptions().maxStepNumber = 10000;
     searchMethod.getOptions().mInc = 1.418;
     searchMethod.getOptions().mDec = 0.368;
     searchMethod.getOptions().numbOfPoints = 100;
