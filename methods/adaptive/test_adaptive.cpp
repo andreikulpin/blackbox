@@ -23,10 +23,10 @@ int main(int argc, char** argv) {
 
     LOCSEARCH::AdaptiveMethod<double> searchMethod;
     searchMethod.getOptions().mDoTracing = true;
-    searchMethod.getOptions().maxStepNumber = 10000;
+    searchMethod.getOptions().maxStepNumber = 100;
     searchMethod.getOptions().mInc = 1.418;
     searchMethod.getOptions().mDec = 0.368;
-    searchMethod.getOptions().numbOfPoints = 10;
+    searchMethod.getOptions().numbOfPoints = 100;
     double v = searchMethod.search(dim, x, a, b, func);
 
     std::cout << searchMethod.about() << "\n";

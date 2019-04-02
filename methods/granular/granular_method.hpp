@@ -32,8 +32,15 @@
 #include <random>
 
 namespace LOCSEARCH {
-    /**
+        /**
      * Random method implementation
+     * 1. Заранее задается t - число, лежащее в интервале от -0.5 до 0.5 и grain_size, равное 1.0
+     * 2. Вычисляется n направлений, каждое из которых - единичное, совпадающее с одной из n осей по направлению
+     * 3. Каждый шаг рандомно выбирается одно из этих направлений и в эту сторону делается шаг размером t * grain_size
+     * 4. Если значение функции уменьшается в данном направлении - запоминаем его и снова выбираем направление
+     * 5. Каждые 100 итераций проверяем число неудачных шагов - в случае, если их было не меньше 95%,
+     * уменьшаем grain_size 
+     * 6. Поиск продолжаем, пока не закончится заданное заранее число шагов
      */
     template <typename FT> class GranularMethod : public BlackBoxSolver<FT> {
 
@@ -61,45 +68,13 @@ namespace LOCSEARCH {
          */
         struct Options {
             /**
-             * Amount of points (better 3n) and max of unsuccessful steps
-             */
-            int numbOfPoints = 600;
-            /**
-             * Minimal value of step
-             */
-            FT minStep = 0.0000001;
-            /**
-             * Initial value of granularity
-             */
-            FT* mHInit = nullptr;
-            /**
-             * Increase in the case of success
-             */
-            FT mInc = 1.618;
-            /**
-             * Decrease in the case of failure
-             */
-            FT mDec = 0.618;
-            /**
-             * Lower bound for granularity
-             */
-            FT mHLB = 1e-08;
-            /**
-             * Upper bound on granularity
-             */
-            FT mHUB = 1e+02;
-            /**
              * Trace on/off
              */
             bool mDoTracing = false;
             /**
              * Max steps number
              */
-            int maxStepNumber = 100;
-            /**
-             * Stop criterion
-             */
-            FT mEps = 0.01;
+            int maxStepNumber = 1000;
         };
 
         /**
@@ -118,13 +93,14 @@ namespace LOCSEARCH {
         FT search(int n, FT* x, const FT* leftBound, const FT* rightBound, const std::function<FT ( const FT* )> &f) override {
             
             double v;
-            //bool rv = false;
             FT fcur = f(x);
             int StepNumber = 0; 
             int Unsuccess = 0;
             double grain_size = 1.0;
             bool br = false;
-            //double annealing_temp = 200;
+            FT* dirs;
+            FT sft = 1.0;
+            dirs = new FT[n*n];
             
             unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine generator(seed);
@@ -135,13 +111,6 @@ namespace LOCSEARCH {
             rng.seed(ss);
             std::uniform_real_distribution<double> unif(0, 1);
             
-           
-            FT* dirs;
-            FT* main_dir;
-            //const snowgoose::Box<double>& box = *(mProblem.mBox);
-            FT sft = 1.0;
-
-            dirs = new FT[n*n];
 
             auto direction = [&] (int amount_of_points) {
                 snowgoose::VecUtils::vecSet(n * n, 0., dirs);
@@ -151,24 +120,8 @@ namespace LOCSEARCH {
                 }
             };
 
-            auto inc = [this] (FT h) {
-                FT t = h;
-                t = h * mOptions.mInc;
-                t = SGMIN(t, mOptions.mHUB);
-                return t;
-            };
-
-            auto dec = [this](FT h) {
-                FT t = h;
-                t = h * mOptions.mDec;
-                t = SGMAX(t, mOptions.mHLB);
-                return t;
-            };
-
             auto step = [&] () {
-                //std::cout << "\n*** Step " << StepNumber << " ***\n";
                 bool isStepSuccessful = false;
-                const FT h = sft;
                 int Unsuccess = 0;
                 const double e = 2.718281828;
 
@@ -194,9 +147,8 @@ namespace LOCSEARCH {
                 return isStepSuccessful;
             };
            
+            direction(1);
             while (!br) {
-
-               direction(1);
                 
                 bool success = step();
  
@@ -216,20 +168,10 @@ namespace LOCSEARCH {
                             Unsuccess = 0;
                         }
                            
-                }  
-                else 
-                {
-                        sft = inc(sft);
                 }
                 
-                if (StepNumber >= mOptions.maxStepNumber) {
-                    br = true;
-                }
+                if (StepNumber >= mOptions.maxStepNumber)   br = true;
 
-                /*if (SGABS(fcur - mGlobMin) < mOptions.mEps) {
-                    br = true;
-                    std::cout << "Stopped as result reached target accuracy\n";
-                }*/
                 
                 for (auto s : mStoppers) {
                     if (s(fcur, x, StepNumber)) {
@@ -281,12 +223,12 @@ namespace LOCSEARCH {
         //std::unique_ptr<LineSearch<FT>> mLS;
         FT mGlobMin;
         
-        void printArray(int n, FT * array) {
+        void printArray(int n, FT * array) const {
             std::cout << " dirs = ";
             std::cout << snowgoose::VecUtils::vecPrint(n, array) << std::endl;
         }
 
-                bool isInBox(int n, const FT* x, const FT* a, const FT* b) {
+        bool isInBox(int n, const FT* x, const FT* a, const FT* b) const {
             for (int i = 0; i < n; i++) {
                 if (x[i] > b[i]) {
                     return false;
@@ -296,7 +238,7 @@ namespace LOCSEARCH {
                     return false;
                 }
             }
-            return true;
+        return true;
         }
         
         void printVector(int n, std::vector<FT> vector) {

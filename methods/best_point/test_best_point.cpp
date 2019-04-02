@@ -23,8 +23,8 @@ int main(int argc, char** argv) {
 
     LOCSEARCH::BestPointMethod<double> searchMethod;
     searchMethod.getOptions().mDoTracing = true;
-    searchMethod.getOptions().maxStepNumber = 1000;
-    searchMethod.getOptions().mDec = 0.618;
+    searchMethod.getOptions().maxStepNumber = 10000;
+    searchMethod.getOptions().mDec = 0.368;
     searchMethod.getOptions().numbOfPoints = 100;
     double v = searchMethod.search(dim, x, a, b, func);
 

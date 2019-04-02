@@ -111,11 +111,6 @@ namespace LOCSEARCH {
             unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine generator(seed);
             std::normal_distribution<FT> distribution(0.0,1.0);
-            /*std::mt19937_64 rng;
-            uint64_t timeSeed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-            std::seed_seq ss{uint32_t(timeSeed & 0xffffffff), uint32_t(timeSeed >> 32)};
-            rng.seed(ss);
-            std::uniform_real_distribution<double> unif(0, 1);*/
 
             auto direction = [&] (int amount_of_points) {
                 for (int j = 0; j < amount_of_points; j++) {
@@ -134,19 +129,6 @@ namespace LOCSEARCH {
                     }
                 }
             };
-
-            /*auto normalize = [&] () {
-                        FT sum = 0.0;
-                        for (int i = 0; i< n; i++)
-                        {
-                            sum += (main_dir [i]) * (main_dir [i]);  
-                        }
-                        sum = sqrt(sum);
-                        for (int i = 0; i< n; i++)
-                        {
-                            main_dir [ i] /= sum;  
-                        }
-            };*/
 
             auto inc = [this] (FT h) {
                 FT t = h;
@@ -186,11 +168,6 @@ namespace LOCSEARCH {
                         //if value in this point less than previous one, trying to make a bigger step in this direction
                         if (fn < fcur) {
                             FT x_continued[n];
-                            /*for (int q = 0; q < n; q++)
-                            {
-                                x_continued[q] = x[q] + mOptions.mInc * (xtmp[q] - x[q]);
-                                //if((x_continued[q] != SGMAX(x_continued[q], box.mA[q])) || (x_continued[q] != SGMIN(x_continued[q], box.mB[q])))
-                            }*/
                             snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
                             snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
                             if (!isInBox(n, x_continued, leftBound, rightBound)) continue;
@@ -200,12 +177,10 @@ namespace LOCSEARCH {
                             if ((f_continued < fcur) && (f_continued < best_f)){
                                     best_f = f_continued;
                                     snowgoose::VecUtils::vecCopy(n, x_continued, x_best);
-                                    //snowgoose::VecUtils::vecCopy(n, xtmp, x_best);
                                     numb_of_best_vec = i; 
                             }
                         } 
                     }
-                }
                 if (numb_of_best_vec != -1) {
                     isStepSuccessful = true;
                     snowgoose::VecUtils::vecCopy(n, x_best, x);

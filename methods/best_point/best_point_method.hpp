@@ -40,8 +40,8 @@ namespace LOCSEARCH {
      * d_k = - 1/sft (sum_M(e_j* delta_f_j)), где sft - величина шага на данной итерации,  
      * e_j - это одно из подсчитанных ранее направлений (с индексом j), 
      * а delta_f_j - соответствующая ему разность f(x_k + sft*e_j)-f(x_k)
-     * Если значение функции уменьшается при шаге в выбранном направлении,то запоминаем его и генерируем новые направления, 
-     * в противном случае шаг уменьшаем и генерируем новые направления
+     * Если значение функции уменьшается при шаге в выбранном направлении,то запоминаем его, увеличиваем шаг
+     * и генерируем новые направления, в противном случае шаг уменьшаем и генерируем новые направления
      * 3. Поиск продолжаем, пока размер шага не станет совсем незначительным
      */
     template <typename FT> class BestPointMethod : public BlackBoxSolver<FT> {
@@ -126,12 +126,6 @@ namespace LOCSEARCH {
             unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine generator(seed);
             std::normal_distribution<FT> distribution(0.0,1.0);
-            /*std::mt19937_64 rng;
-            uint64_t timeSeed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-            std::seed_seq ss{uint32_t(timeSeed & 0xffffffff), uint32_t(timeSeed>>32)};
-            rng.seed(ss);
-            std::uniform_real_distribution<double> unif(0, 1);*/
-            
 
             dirs = new FT[n * mOptions.numbOfPoints];
             //generator of points on M-sphere, based on normal distribution (M - amount_of_points)
@@ -182,7 +176,6 @@ namespace LOCSEARCH {
             };
 
             auto step = [&] () {
-                //std::cout << "\n*** Step " << StepNumber << " ***\n";
                 bool isStepSuccessful = false;
                 const FT h = sft;
                 
@@ -201,7 +194,6 @@ namespace LOCSEARCH {
                             delta_x[j] = x[j] + dirs[i * n + j] * h;
                         }
                         delta_f[i] = f(delta_x);
-                        //
                         delta_f[i] = delta_f[i] - fcur;
                         for (int j = 0; j < n; j++)
                         {   
@@ -213,7 +205,6 @@ namespace LOCSEARCH {
 
                     //make a step in the calculated direction and save it in case of success
                     snowgoose::VecUtils::vecSaxpy(n, x, main_dir, h, xtmp);
-                    //snowgoose::VecUtils::vecSaxpy(n, x, main_dir, 1.0, xtmp);
                     if (isInBox(n, xtmp, leftBound, rightBound)) {
                         FT fn = f(xtmp);
                         if (fn < fcur)
@@ -242,15 +233,9 @@ namespace LOCSEARCH {
                 else {
                     if (!success) {
                         if (sft > mOptions.minStep) sft = dec(sft); 
-                        else {br = true;
-                            std::cout << "step =" << StepNumber << std::endl;}
+                        else br = true;
                     } else sft = inc(sft); 
                 }
-
-                /*if (SGABS(fcur - mGlobMin) < mOptions.mEps) {
-                    br = true;
-                    std::cout << "Stopped as result reached target accuracy\n";
-                }*/
 
                 for (auto s : mStoppers) {
                     if (s(fcur, x, StepNumber)) {
@@ -301,7 +286,7 @@ namespace LOCSEARCH {
         //std::unique_ptr<LineSearch<FT>> mLS;
         FT mGlobMin;
 
-        bool isInBox(int n, const FT* x, const FT* a, const FT* b) {
+        bool isInBox(int n, const FT* x, const FT* a, const FT* b) const{
             for (int i = 0; i < n; i++) {
                 if (x[i] > b[i]) {
                     return false;
@@ -314,7 +299,7 @@ namespace LOCSEARCH {
             return true;
         }
 
-        void printArray(int n, FT * array) {
+        void printArray(int n, FT * array) const{
             std::cout << " dirs = ";
             std::cout << snowgoose::VecUtils::vecPrint(n, array) << std::endl;
         }
