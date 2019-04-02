@@ -95,7 +95,7 @@ namespace LOCSEARCH {
             /**
              * Max steps number
              */
-            int maxStepNumber = 10000;
+            int maxStepNumber = 100;
             /**
              * Stop criterion
              */
@@ -226,10 +226,10 @@ namespace LOCSEARCH {
                     br = true;
                 }
 
-                if (SGABS(fcur - mGlobMin) < mOptions.mEps) {
+                /*if (SGABS(fcur - mGlobMin) < mOptions.mEps) {
                     br = true;
                     std::cout << "Stopped as result reached target accuracy\n";
-                }
+                }*/
                 
                 for (auto s : mStoppers) {
                     if (s(fcur, x, StepNumber)) {
