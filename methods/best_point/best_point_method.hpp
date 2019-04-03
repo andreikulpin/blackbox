@@ -34,6 +34,15 @@
 namespace LOCSEARCH {
     /**
      * Random method implementation
+     * 1. Заранее вычисляется M направлений, которые выходят из исходной точки и соединяют ее с точками,
+     * равномерно распределенными на сфере ( в функции direction мы получаем вектора)
+     * 2. В качестве направления поиска используется нормализованный вектор статистического антиградиента 
+     * d_k = - 1/sft (sum_M(e_j* delta_f_j)), где sft - величина шага на данной итерации,  
+     * e_j - это одно из подсчитанных ранее направлений (с индексом j), 
+     * а delta_f_j - соответствующая ему разность f(x_k + sft*e_j)-f(x_k)
+     * Если значение функции уменьшается при шаге в выбранном направлении,то запоминаем его, увеличиваем шаг
+     * и генерируем новые направления, в противном случае шаг уменьшаем и генерируем новые направления
+     * 3. Поиск продолжаем, пока размер шага не станет совсем незначительным
      */
     template <typename FT> class BestPointMethod : public BlackBoxSolver<FT> {
     public:
@@ -62,15 +71,11 @@ namespace LOCSEARCH {
             /**
              * Amount of points (better 3n) and max of unsuccessful steps
              */
-            int numbOfPoints = 600;
+            int numbOfPoints = 10;
             /**
              * Minimal value of step
              */
-            FT minStep = 0.00001;
-            /**
-             * Initial value of granularity
-             */
-            FT* mHInit = nullptr;
+            FT minStep = 1e-08;
             /**
              * Increase in the case of success
              */
@@ -80,11 +85,11 @@ namespace LOCSEARCH {
              */
             FT mDec = 0.618;
             /**
-             * Lower bound for granularity
+             * Lower bound
              */
             FT mHLB = 1e-08;
             /**
-             * Upper bound on granularity
+             * Upper bound
              */
             FT mHUB = 1e+02;
             /**
@@ -94,11 +99,11 @@ namespace LOCSEARCH {
             /**
              * Max steps number
              */
-            int maxStepNumber = 10000;
+            int maxStepNumber = 100;
             /**
              * Stop criterion
              */
-            FT mEps = 0.00001;
+            FT mEps = 1e-08;
         };
 
         /**
@@ -113,42 +118,36 @@ namespace LOCSEARCH {
             double v;
             FT fcur = f(x);
             int StepNumber = 0; 
-            int Unsuccess = 0;
             bool br = false;
+            FT* dirs;
+            FT* main_dir;
+            FT sft = 1.0;
             
             unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine generator(seed);
             std::normal_distribution<FT> distribution(0.0,1.0);
-            std::mt19937_64 rng;
-            uint64_t timeSeed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-            std::seed_seq ss{uint32_t(timeSeed & 0xffffffff), uint32_t(timeSeed>>32)};
-            rng.seed(ss);
-            std::uniform_real_distribution<double> unif(0, 1);
-            
-           
-            FT* dirs;
-            FT* main_dir;
-            //const snowgoose::Box<double>& box = *(mProblem.mBox);
-            FT sft = 1.0;
 
             dirs = new FT[n * mOptions.numbOfPoints];
-            //generator, based on normal distribution
+            //generator of points on M-sphere, based on normal distribution (M - amount_of_points)
             auto direction = [&] (int amount_of_points) {
                 for (int j = 0; j < amount_of_points; j++)
                 {
                     FT sum = 0.0;
+                    //get vector of gaussian variables and find the sum for normalization
                     for (int i = 0; i< n; i++)
                     {
                         dirs [n*j + i] = distribution(generator);
                         sum += (dirs [n*j + i]) * (dirs [n*j + i]);  
                     }
                     sum = sqrt(sum);
+                    //normalize direction for uniform on M-sphere
                     for (int i = 0; i< n; i++)
                     {
                         dirs [n*j + i] /= sum;  
                     }
                 }
             };
+            
             auto normalize = [&] () {
                         FT sum = 0.0;
                         for (int i = 0; i< n; i++)
@@ -158,7 +157,7 @@ namespace LOCSEARCH {
                         sum = sqrt(sum);
                         for (int i = 0; i< n; i++)
                         {
-                            main_dir [ i] /= sum;  
+                            main_dir [i] /= sum;  
                         }
             };
 
@@ -172,12 +171,11 @@ namespace LOCSEARCH {
             auto dec = [this](FT h) {
                 FT t = h;
                 t = h * mOptions.mDec;
-                t = SGMAX(t, mOptions.mHLB);
+                //t = SGMAX(t, mOptions.mHLB);
                 return t;
             };
 
             auto step = [&] () {
-                //std::cout << "\n*** Step " << StepNumber << " ***\n";
                 bool isStepSuccessful = false;
                 const FT h = sft;
                 
@@ -187,6 +185,8 @@ namespace LOCSEARCH {
                     main_dir = new FT[n];
                     snowgoose::VecUtils::vecSet(n, 0., main_dir);
 
+                    //calculate e_j * delta_f_j - find the function value in the selected direction, and sum the multiplication of
+                    //this direction on the difference between this value and the previous function value
                     for (int i = 0; i < mOptions.numbOfPoints; i++) 
                     {
                         for (int j = 0; j < n; j++)
@@ -194,7 +194,6 @@ namespace LOCSEARCH {
                             delta_x[j] = x[j] + dirs[i * n + j] * h;
                         }
                         delta_f[i] = f(delta_x);
-                        //delta_f[i] = obj->func(delta_x);
                         delta_f[i] = delta_f[i] - fcur;
                         for (int j = 0; j < n; j++)
                         {   
@@ -203,6 +202,8 @@ namespace LOCSEARCH {
                     }
                     snowgoose::VecUtils::vecMult(n, main_dir, (- 1.0 / h), main_dir);
                     normalize();
+
+                    //make a step in the calculated direction and save it in case of success
                     snowgoose::VecUtils::vecSaxpy(n, x, main_dir, h, xtmp);
                     if (isInBox(n, xtmp, leftBound, rightBound)) {
                         FT fn = f(xtmp);
@@ -219,7 +220,6 @@ namespace LOCSEARCH {
             while (!br) {
 
                 direction(mOptions.numbOfPoints);
-                
                 bool success = step();
  
                 StepNumber++;
@@ -229,23 +229,12 @@ namespace LOCSEARCH {
                     std::cout << "sft =" << sft << std::endl;
                 }
 
-                if (!success) {
-                        if (sft > mOptions.minStep) 
-                            {
-                                sft = dec(sft);
-                            } 
-                            else
-                            {
-                              br = true;
-                            }
-                } //else sft = inc(sft); 
-                if (StepNumber >= mOptions.maxStepNumber) {
-                    br = true;
-                }
-
-                if (SGABS(fcur - mGlobMin) < mOptions.mEps) {
-                    br = true;
-                    std::cout << "Stopped as result reached target accuracy\n";
+                if (StepNumber >= mOptions.maxStepNumber) br = true;
+                else {
+                    if (!success) {
+                        if (sft > mOptions.minStep) sft = dec(sft); 
+                        else br = true;
+                    } else sft = inc(sft); 
                 }
 
                 for (auto s : mStoppers) {
@@ -297,7 +286,7 @@ namespace LOCSEARCH {
         //std::unique_ptr<LineSearch<FT>> mLS;
         FT mGlobMin;
 
-        bool isInBox(int n, const FT* x, const FT* a, const FT* b) {
+        bool isInBox(int n, const FT* x, const FT* a, const FT* b) const{
             for (int i = 0; i < n; i++) {
                 if (x[i] > b[i]) {
                     return false;
@@ -310,7 +299,7 @@ namespace LOCSEARCH {
             return true;
         }
 
-        void printArray(int n, FT * array) {
+        void printArray(int n, FT * array) const{
             std::cout << " dirs = ";
             std::cout << snowgoose::VecUtils::vecPrint(n, array) << std::endl;
         }

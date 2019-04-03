@@ -4,13 +4,13 @@
 
 using namespace std;
 
-double func(const double* x) {
-    return 100 * SGSQR(x[1] - x[0] * x[0]) + SGSQR(1 - x[1]);
-}
-
 /*double func(const double* x) {
+    return 100 * SGSQR(x[1] - x[0] * x[0]) + SGSQR(1 - x[1]);
+}*/
+
+double func(const double* x) {
             return 4 * SGSQR(x[0] - 5) + SGSQR(x[1] - 6);
-        }*/
+        }
 
 int main(int argc, char** argv) {
     const int dim = 2;
@@ -24,7 +24,6 @@ int main(int argc, char** argv) {
     LOCSEARCH::BestPointMethod<double> searchMethod;
     searchMethod.getOptions().mDoTracing = true;
     searchMethod.getOptions().maxStepNumber = 10000;
-    searchMethod.getOptions().mInc = 1.418;
     searchMethod.getOptions().mDec = 0.368;
     searchMethod.getOptions().numbOfPoints = 100;
     double v = searchMethod.search(dim, x, a, b, func);
