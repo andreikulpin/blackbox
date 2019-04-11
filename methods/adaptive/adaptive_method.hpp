@@ -166,7 +166,7 @@ namespace LOCSEARCH {
 
                         FT fn = f(xtmp);
                         //if value in this point less than previous one, trying to make a bigger step in this direction
-                        if (fn < fcur) {
+                        /*if (fn < fcur) {
                             FT x_continued[n];
                             snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
                             snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
@@ -174,12 +174,32 @@ namespace LOCSEARCH {
 
                             //save this direction, in the best case
                             FT f_continued = f(x_continued);
-                            if ((f_continued < fcur) && (f_continued < best_f)){
+                            if ((f_continued < fn) && (f_continued < best_f)){
                                     best_f = f_continued;
                                     snowgoose::VecUtils::vecCopy(n, x_continued, x_best);
                                     numb_of_best_vec = i; 
                             }
-                        } 
+                        } */
+                        if (fn < fcur) {
+                            FT x_continued[n];
+                            snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
+                            snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
+                            if (!isInBox(n, x_continued, leftBound, rightBound)) continue;
+
+                            if (fn < best_f){
+                                best_f = fn;
+                                snowgoose::VecUtils::vecCopy(n, xtmp, x_best);
+                                numb_of_best_vec = i;
+                            }
+                            
+                            //save this direction, in the best case
+                            FT f_continued = f(x_continued);
+                            if (f_continued < best_f){
+                                    best_f = f_continued;
+                                    snowgoose::VecUtils::vecCopy(n, x_continued, x_best);
+                                    numb_of_best_vec = i; 
+                            }
+                        }
                     }
                 if (numb_of_best_vec != -1) {
                     isStepSuccessful = true;
