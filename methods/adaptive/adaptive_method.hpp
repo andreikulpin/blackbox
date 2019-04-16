@@ -148,14 +148,16 @@ namespace LOCSEARCH {
                 bool isStepSuccessful = false;
                 const FT h = sft;
                 const double e = 2.718281828;
-                  
-                    FT best_f = fcur;
-                    FT x_best[n];
-                    int numb_of_best_vec = -1;
 
-                    for (int i = 0; i < mOptions.numbOfPoints; i++) 
+                    bool dirty_flag = false;
+                    FT f_best[mOptions.numbOfPoints];
+                    snowgoose::VecUtils::vecSet(mOptions.numbOfPoints, fcur + 1.0, f_best);
+                    //FT best_f = fcur;
+                    FT x_best[n];
+                    int numb_of_best_vec = 0;
+                #pragma omp parallel for
+                for (int i = 0; i < mOptions.numbOfPoints; i++) 
                     {
-                    
                         FT xtmp[n]; 
                         //calculation of new point
                         for (int j = 0; j < n; j++)
@@ -166,48 +168,41 @@ namespace LOCSEARCH {
 
                         FT fn = f(xtmp);
                         //if value in this point less than previous one, trying to make a bigger step in this direction
-                        /*if (fn < fcur) {
-                            FT x_continued[n];
-                            snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
-                            snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
-                            if (!isInBox(n, x_continued, leftBound, rightBound)) continue;
-
-                            //save this direction, in the best case
-                            FT f_continued = f(x_continued);
-                            if ((f_continued < fn) && (f_continued < best_f)){
-                                    best_f = f_continued;
-                                    snowgoose::VecUtils::vecCopy(n, x_continued, x_best);
-                                    numb_of_best_vec = i; 
-                            }
-                        } */
                         if (fn < fcur) {
+                            dirty_flag = true;
                             FT x_continued[n];
                             snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
                             snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
                             if (!isInBox(n, x_continued, leftBound, rightBound)) continue;
-
-                            if (fn < best_f){
-                                best_f = fn;
-                                snowgoose::VecUtils::vecCopy(n, xtmp, x_best);
-                                numb_of_best_vec = i;
-                            }
                             
-                            //save this direction, in the best case
                             FT f_continued = f(x_continued);
-                            if (f_continued < best_f){
-                                    best_f = f_continued;
-                                    snowgoose::VecUtils::vecCopy(n, x_continued, x_best);
-                                    numb_of_best_vec = i; 
-                            }
+                            if (f_continued < fn) f_best[i] = f_continued;
+                            else f_best[i] = fn;
                         }
                     }
-                if (numb_of_best_vec != -1) {
-                    isStepSuccessful = true;
-                    snowgoose::VecUtils::vecCopy(n, x_best, x);
-                    fcur = best_f;
-                }
 
-                return isStepSuccessful;
+                if (dirty_flag) 
+                    {
+                        fcur = snowgoose::VecUtils::min(mOptions.numbOfPoints, f_best, &numb_of_best_vec);
+                        //calculation of x
+                        FT xtmp[n]; 
+                        for (int j = 0; j < n; j++)
+                        {
+                            xtmp[j] = x[j] + dirs[ numb_of_best_vec * n + j] * h;
+                        }
+                        FT fn = f(xtmp);
+                        if (fn != fcur) {
+                            FT x_continued[n];
+                            snowgoose::VecUtils::vecSaxpy(n, xtmp, x, -1.0, x_continued);
+                            snowgoose::VecUtils::vecSaxpy(n, x, x_continued, mOptions.mInc, x_continued);
+                            snowgoose::VecUtils::vecCopy(n, x_continued, x);
+                        }
+                        else snowgoose::VecUtils::vecCopy(n, xtmp, x);
+
+                        isStepSuccessful = true;
+                        return isStepSuccessful;
+                    }
+                else return isStepSuccessful;
             };
 
             while (!br) {
