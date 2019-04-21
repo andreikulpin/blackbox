@@ -122,6 +122,7 @@ namespace LOCSEARCH {
             FT* dirs;
             FT* main_dir;
             FT sft = 1.0;
+            int numb_of_best_f = 0;
             
             unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine generator(seed);
@@ -180,6 +181,7 @@ namespace LOCSEARCH {
                 const FT h = sft;
                 
                     FT delta_f[mOptions.numbOfPoints];
+                    FT min_delta_f[mOptions.numbOfPoints];
                     FT delta_x[n];
                     FT xtmp[n];
                     main_dir = new FT[n];
@@ -194,12 +196,28 @@ namespace LOCSEARCH {
                             delta_x[j] = x[j] + dirs[i * n + j] * h;
                         }
                         delta_f[i] = f(delta_x);
-                        delta_f[i] = delta_f[i] - fcur;
+                        min_delta_f[i] = delta_f[i] - fcur;
                         for (int j = 0; j < n; j++)
                         {   
-                            main_dir[j] += dirs[i * n + j] * delta_f[i];
+                            main_dir[j] += dirs[i * n + j] * min_delta_f[i];
                         }
                     }
+
+                    //trying to make step in the best direction
+                    //in case of fail make a step in the antigradient direction
+                    FT fn = snowgoose::VecUtils::min(mOptions.numbOfPoints, delta_f, &numb_of_best_f); 
+                    for (int j = 0; j < n; j++)
+                    {
+                        xtmp[j] = x[j] + dirs[ numb_of_best_f * n + j] * h;
+                    }
+                    if (fn < fcur)
+                    {
+                        fcur = fn;
+                        snowgoose::VecUtils::vecCopy(n, xtmp, x);
+                        isStepSuccessful = true; 
+                        return isStepSuccessful;
+                    }  
+
                     snowgoose::VecUtils::vecMult(n, main_dir, (- 1.0 / h), main_dir);
                     normalize();
 
