@@ -4,6 +4,7 @@ all dep clean tests::
 	cd methods/best_point && $(MAKE) $@ && cd ..
 	cd methods/adaptive && $(MAKE) $@ && cd ..
 	cd methods/granular && $(MAKE) $@ && cd ..
+	cd modelbased && $(MAKE) $@ && cd ..
 
 doc: indent doxy
 
