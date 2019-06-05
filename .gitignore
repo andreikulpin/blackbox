@@ -12,3 +12,6 @@ deps.inc
 nbproject/
 Makefile-bnb.mk
 
+#vscode files
+.vscode
+
