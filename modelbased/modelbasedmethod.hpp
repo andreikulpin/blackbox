@@ -122,13 +122,19 @@ namespace LOCSEARCH {
             q = (n + 1) * (n + 2) * 0.5;
 
             FT maxTrustRegionRadius = calculateMaxTrustRegionRadius(x, leftBound, rightBound);
-            trustRegionRadius = std::min(mOptions.mInitialRadius, maxTrustRegionRadius);
+            double trustRegionRadius = std::min(mOptions.mInitialRadius, maxTrustRegionRadius);
 
-            Y = new FT[q * n];
-            fValues = new FT[q];
+            FT * Y = new FT[q * n]; // Interpolation set
+            FT * fValues = new FT[q];
 
-            g = new FT[n];
-            G = new FT[n * n];
+            FT fCur;
+            int xMinIndex;
+
+            FT fMax;
+            int xMaxIndex;
+
+            FT * g = new FT[n];
+            FT * G = new FT[n * n];
 
             FT cauchyPoint[n];
             FT trialPoint[n];
@@ -144,18 +150,18 @@ namespace LOCSEARCH {
             }
 
             functionCallsCount = 0;
-            fillInterpolationSet(x);  
+            fillInterpolationSet(x, trustRegionRadius, Y);  
 
             xMinIndex = 0;
             fValues[xMinIndex] = f(x);
             functionCallsCount++;
-            evaluateInterpolationSet(f); 
+            evaluateInterpolationSet(f, Y, fValues, fCur, xMinIndex, fMax, xMaxIndex); 
 
             maxTrustRegionRadius = calculateMaxTrustRegionRadius(Y + xMinIndex * n, leftBound, rightBound);
             trustRegionRadius = std::min(trustRegionRadius, maxTrustRegionRadius);
             
             bool isStopped = false;
-            iteration = 0;
+            int iteration = 0;
             do {
                 iteration += 1;
                 if (mOptions.mDoTracing) {
@@ -168,19 +174,19 @@ namespace LOCSEARCH {
                     printArray("Function values", q, fValues);
                 }
 
-                resolveModel();
+                resolveModel(Y, fValues, fCur, xMinIndex, g, G);
 
                 bool isGessianPositiveDefinite = isMatrixPositiveDefinite(n, G);
                 //std::cout << "isGessianPositiveDefinite = " << isGessianPositiveDefinite << "\n"; 
 
                 if (isGessianPositiveDefinite && mOptions.useDogleg) {
-                    bool isSuccess = dogleg(cauchyPoint);
+                    bool isSuccess = dogleg(trustRegionRadius, cauchyPoint, g, G);
                     //std::cout << "Dogleg " << (isSuccess ? "success" : "not success") << "\n";
                     if (!isSuccess) {
-                        resolveCauchyPoint(cauchyPoint);
+                        resolveCauchyPoint(trustRegionRadius, cauchyPoint, g, G);
                     }
                 } else {
-                    resolveCauchyPoint(cauchyPoint);
+                    resolveCauchyPoint(trustRegionRadius, cauchyPoint, g, G);
                 }
 
                 FT * xCur = Y + xMinIndex * n;
@@ -245,7 +251,7 @@ namespace LOCSEARCH {
                             xMinIndex = xMaxIndex;
                             snowgoose::VecUtils::vecCopy(n, trialPoint, Y + xMinIndex * n);
                             fValues[xMinIndex] = trialValue;
-                            findMaxValue();
+                            findMaxValue(fValues, fMax, xMaxIndex);
                         }
                     }
                     
@@ -264,8 +270,8 @@ namespace LOCSEARCH {
                     
                 } else if (!isStopped) {
                     trustRegionRadius *= mOptions.mDec;
-                    fillInterpolationSet(xCur);
-                    evaluateInterpolationSet(f);
+                    fillInterpolationSet(xCur, trustRegionRadius, Y);
+                    evaluateInterpolationSet(f, Y, fValues, fCur, xMinIndex, fMax, xMaxIndex);
                     maxTrustRegionRadius = calculateMaxTrustRegionRadius(Y + xMinIndex * n, leftBound, rightBound);
                     trustRegionRadius = std::min(trustRegionRadius, maxTrustRegionRadius);
                 }
@@ -276,6 +282,7 @@ namespace LOCSEARCH {
 
             } while (!isStopped);
 
+            iterationsCount = iteration;
             snowgoose::VecUtils::vecCopy(n, Y + xMinIndex * n, x);
 
             fout.close();
@@ -329,7 +336,7 @@ namespace LOCSEARCH {
         }
 
         int getIterationsCount() {
-            return iteration;
+            return iterationsCount;
         }
 
 
@@ -341,18 +348,7 @@ namespace LOCSEARCH {
         int n;
         int q;
 
-        double trustRegionRadius;
-        FT * Y; // Interpolation set
-        FT * fValues;
-        FT fCur;
-        int xMinIndex;
-        FT fMax;
-        int xMaxIndex;
-
-        FT * g;
-        FT * G;
-
-        int iteration;
+        int iterationsCount;
         int functionCallsCount;
 
         bool isMatrixPositiveDefinite(int n, FT * matrix) {
@@ -385,7 +381,7 @@ namespace LOCSEARCH {
             return maxTrustRegionRadius;
         }
 
-        void fillInterpolationSet(FT * x) {
+        void fillInterpolationSet(FT * x, double trustRegionRadius, FT * Y) {
             for (int i = 0; i < q; i++) {
                 for (int j = 0; j < n; j++) {
                     Y[i * n + j] = x[j];
@@ -412,7 +408,9 @@ namespace LOCSEARCH {
             }
         }
 
-        void evaluateInterpolationSet(const std::function<FT ( const FT* )> &f) {
+        void evaluateInterpolationSet(const std::function<FT ( const FT* )> &f, FT * Y, FT * fValues, 
+                FT & fCur, int & xMinIndex, FT & fMax, int & xMaxIndex) 
+        {
             FT yi[n];
 
             //std::cout << snowgoose::VecUtils::vecPrint(n, xcur) << " " << fcur << std::endl;
@@ -425,14 +423,14 @@ namespace LOCSEARCH {
                 // std::cout << snowgoose::VecUtils::vecPrint(n, yi) << " " << value << std::endl;
             }
 
-            findMinValue();
-            findMaxValue();
+            findMinValue(fValues, fCur, xMinIndex);
+            findMaxValue(fValues, fMax, xMaxIndex);
 
             //std::cout << "xcur " << xMinIndex << " " << fCur << std::endl;
             //std::cout << "xMax " << xMaxIndex << " " << fMax << std::endl;
         }
 
-        void findMinValue() {
+        void findMinValue(FT * fValues, FT & fCur, int & xMinIndex) {
             xMinIndex = 0;
             fCur = fValues[0];
             for (int i = 1; i < q; i++) {
@@ -443,7 +441,7 @@ namespace LOCSEARCH {
             }
         }
 
-        void findMaxValue() {
+        void findMaxValue(FT * fValues, FT & fMax, int & xMaxIndex) {
             xMaxIndex = 0;
             fMax = fValues[0];
             for (int i = 1; i < q; i++) {
@@ -454,7 +452,7 @@ namespace LOCSEARCH {
             }
         }
 
-        void resolveModel() {
+        void resolveModel(FT * Y, FT * fValues, FT fCur, int xMinIndex, FT * g, FT * G) {
             //std::cout << "xMinIndex = " << xMinIndex << std::endl;
             FT S[(q - 1) * (q - 1)];
             std::fill(S, S + (q - 1) * (q - 1), 0.);
@@ -529,7 +527,7 @@ namespace LOCSEARCH {
             //printMatrix("G", n, n, G);
         }
 
-        void resolveCauchyPoint(FT * cauchyPoint) {
+        void resolveCauchyPoint(double trustRegionRadius, FT * cauchyPoint, FT * g, FT * G) {
             FT gGg = vMvMul(n, g, G);
             //std::cout << " gGg = " << gGg << std::endl;
 
@@ -551,7 +549,7 @@ namespace LOCSEARCH {
             snowgoose::VecUtils::vecMult(n, g, alpha, cauchyPoint);
         }
 
-        bool dogleg(FT * stepPoint) {
+        bool dogleg(double trustRegionRadius, FT * stepPoint, FT * g, FT * G) {
             FT fullStep[n];
             resolveFullStepPoint(g, G, fullStep);
             //printArray("Full step", n, fullStep);
