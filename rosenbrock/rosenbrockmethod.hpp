@@ -18,6 +18,7 @@
 //#include <mputils.hpp>
 //#include <common/lineseach.hpp>
 #include <cmath>
+#include <fstream>
 
 
 namespace LOCSEARCH {
@@ -91,6 +92,14 @@ namespace LOCSEARCH {
              * Trace on/off
              */
             bool mDoTracing = false;
+            /**
+             * Known function global min
+             */
+            FT mFunctionGlobMin;
+            /**
+             * Function value approximation
+             */
+            FT mEps = 1e-03;
         };
 
         /**
@@ -101,10 +110,27 @@ namespace LOCSEARCH {
          */
         FT search(int n, FT* x, const FT* leftBound, const FT* rightBound, const std::function<FT ( const FT* )> &f) override {
             const int nsqr = n * n;
+            functionCallsCount = 0;
+            functionCallsCountNeeded = 0;
+
+            std::ofstream fout;
+            fout.open("pathr.log");
+
+            for (int i = 0; i < n; i++) { 
+                fout << x[i] << " ";
+                path.push_back(x[i]);
+            }
+            callCounts.push_back(functionCallsCount);
+            if (n < 3)
+                fout << 0;
+            fout << std::endl;
 
             double v;
             FT fcur = f(x);
             FT xOld[n];
+
+            functionCallsCount++;
+            functionCallsCountNeeded = functionCallsCount;
 
             std::vector<FT> sft(mOptions.mHInit);
             std::vector<FT> stepLen(n, 0);
@@ -132,9 +158,8 @@ namespace LOCSEARCH {
             FT * b = new FT[nsqr];
             FT * d = new FT[nsqr];
 
-            int stageNum = 1;
+            stageNum = 1;
             bool br = false;
-
 
             auto inc = [this] (FT h) {
                 FT t = h;
@@ -165,6 +190,7 @@ namespace LOCSEARCH {
                     snowgoose::VecUtils::vecSaxpy(n, xn, &(dirs[i * n]), h, xtmp);
                     if (isInBox(n, xtmp, leftBound, rightBound)) {
                         FT ftmp = f(xtmp);
+                        functionCallsCount++;
 
                         if (ftmp < fcur) {
                             isStepSuccessful = true;
@@ -223,8 +249,21 @@ namespace LOCSEARCH {
                 const FT fold = fcur;
                 const bool success = step();
                 if(success) {
+                    functionCallsCountNeeded = functionCallsCount;
+
+                    for (int i = 0; i < n; i++) { 
+                        fout << x[i] << " ";
+                        path.push_back(x[i]);
+                    }
+                    callCounts.push_back(functionCallsCount);
+                    if (n < 3)
+                        fout << 0;
+                    fout << std::endl;
+
                     const FT dist = snowgoose::VecUtils::vecDist(n, x, xold);
                     der = (fold - fcur) / dist;
+                    if (mOptions.mDoTracing) 
+                        std::cout << "Grad Ros = " << der << "\n";
 //                    std::cout << "der = " << der << std::endl;
                     if(der < mOptions.mMinGrad) {
                        if (mOptions.mDoTracing) 
@@ -237,6 +276,14 @@ namespace LOCSEARCH {
 //                        sft[i] = (sft[i] > 0 ? 1 : - 1) * mOptions.mHInit[i] * mult;
 //                    }
                     // HACK
+                }
+
+                if (mOptions.mDoTracing) {
+                    std::cout << " Stage " << stageNum << "\n"; 
+                    std::cout << "X = " << snowgoose::VecUtils::vecPrint(n, x) << "\n";
+                    std::cout << "fCur = " << fcur << "\n";
+                    std::cout << "Grad Ros = " << der << "\n";
+                    std::cout << "Calls count = " << functionCallsCount << "\n";
                 }
                 
                 stageNum ++;
@@ -263,9 +310,16 @@ namespace LOCSEARCH {
                     }
                 }
 
-                if (stageNum >= mOptions.mMaxStepsNumber) {
+                if (std::abs(fcur - mOptions.mFunctionGlobMin) < mOptions.mEps) {
+                    if (mOptions.mDoTracing) 
+                        std::cout << "Stopped as estimation was accurate" << std::endl;
                     br = true;
-                    std::cout << "Stopped as number of stages was too big\n";
+                }
+
+                if (stageNum >= mOptions.mMaxStepsNumber) {
+                    if (mOptions.mDoTracing) 
+                        std::cout << "Stopped as number of stages was too big\n";
+                    br = true;
                 }
 
                 for (auto w : mWatchers) {
@@ -280,6 +334,11 @@ namespace LOCSEARCH {
             }
             v = fcur;
 
+            if (mOptions.mDoTracing) {
+                std::cout << "Function calls count = " << functionCallsCount << std::endl;
+            }
+
+            fout.close();
             delete [] dirs;
             delete [] a;
             delete [] b;
@@ -329,10 +388,36 @@ namespace LOCSEARCH {
             return mWatchers;
         }
 
+        int getFunctionCallsCount() {
+            return functionCallsCount;
+        }
+
+        int getIterationsCount() {
+            return stageNum;
+        }
+
+        int getFunctionCallsNeeded() {
+            return functionCallsCountNeeded;
+        }
+
+        std::vector<double>& getPath() {
+            return path;
+        }
+
+        std::vector<int>& getCallCounts() {
+            return callCounts;
+        }
+
     private:
         Options mOptions;
         std::vector<Stopper> mStoppers;
         std::vector<Watcher> mWatchers;
+        int stageNum;
+        int functionCallsCount;
+        int functionCallsCountNeeded;
+
+        std::vector<double> path;
+        std::vector<int> callCounts;
 
         void printMatrix(const char * name, int n, int m, FT * matrix) {
             std::cout << name << " =\n";
